@@ -13,7 +13,7 @@ configurations {
     provided
 }
 
-version = "0.1.0"
+version = "0.0.1"
 
 sourceCompatibility = 1.7
 targetCompatibility = 1.7
@@ -78,7 +78,7 @@ Gem::Specification.new do |spec|
   spec.description   = %[To Json]
   spec.email         = ["civitaspo@gmail.com"]
   spec.licenses      = ["MIT"]
-  # TODO set this: spec.homepage      = "https://github.com/civitaspo/embulk-filter-to_json"
+  spec.homepage      = "https://github.com/civitaspo/embulk-filter-to_json"
 
   spec.files         = `git ls-files`.split("\n") + Dir["classpath/*.jar"]
   spec.test_files    = spec.files.grep(%r"^(test|spec)/")
