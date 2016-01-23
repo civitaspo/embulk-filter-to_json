@@ -1,16 +1,17 @@
 package org.embulk.filter.to_json;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
+import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.Task;
 import org.embulk.config.TaskSource;
 import org.embulk.spi.Column;
+import org.embulk.spi.ColumnConfig;
 import org.embulk.spi.Exec;
 import org.embulk.spi.FilterPlugin;
 import org.embulk.spi.Page;
@@ -18,22 +19,69 @@ import org.embulk.spi.PageBuilder;
 import org.embulk.spi.PageOutput;
 import org.embulk.spi.PageReader;
 import org.embulk.spi.Schema;
+import org.embulk.spi.type.Type;
 import org.embulk.spi.type.Types;
 import org.slf4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 
 public class ToJsonFilterPlugin
         implements FilterPlugin
 {
-    private final static Logger logger = Exec.getLogger(ToJsonFilterPlugin.class);
+    private static final Logger logger = Exec.getLogger(ToJsonFilterPlugin.class);
+    private static final String DEFAULT_COLUMN_NAME = "json_payload";
+    private static final Type DEFAULT_COLUMN_TYPE = Types.STRING;
+    private static final ConfigSource DEFAULT_COLUMN_OPTION = Exec.newConfigSource();
+    private static final int JSON_COLUMN_INDEX = 0;
 
     public interface PluginTask
             extends Task
     {
-        @Config("column_name")
-        @ConfigDefault("\"json_payload\"")
-        public String getColumnName();
+        @Config("column")
+        @ConfigDefault("null")
+        Optional<JsonColumn> getJsonColumn();
+
+        @Config("skip_if_null")
+        @ConfigDefault("[]")
+        List<String> getColumnNamesSkipIfNull();
+    }
+
+    public interface JsonColumn
+            extends Task
+    {
+        @Config("name")
+        @ConfigDefault("null")
+        Optional<String> getName();
+
+        @Config("type")
+        @ConfigDefault("null")
+        Optional<Type> getType();
+    }
+
+    private ColumnConfig buildJsonColumnConfig(PluginTask task)
+    {
+        if (!task.getJsonColumn().isPresent()) {
+            return newJsonColumnConfig();
+        }
+
+        JsonColumn jsonColumn = task.getJsonColumn().get();
+        Optional<String> name = jsonColumn.getName();
+        Optional<Type> type = jsonColumn.getType();
+        return newJsonColumnConfig(name.or(DEFAULT_COLUMN_NAME), type.or(DEFAULT_COLUMN_TYPE), DEFAULT_COLUMN_OPTION);
+    }
+
+    private ColumnConfig newJsonColumnConfig()
+    {
+        return newJsonColumnConfig(DEFAULT_COLUMN_NAME, DEFAULT_COLUMN_TYPE, DEFAULT_COLUMN_OPTION);
+    }
+
+    private ColumnConfig newJsonColumnConfig(String name, Type type, ConfigSource option)
+    {
+        if (!Types.STRING.equals(type) && !Types.JSON.equals(type)) {
+            throw new ConfigException(String.format("Cannot convert JSON to type: %s", type));
+        }
+        return new ColumnConfig(name, type, option);
     }
 
     @Override
@@ -41,15 +89,26 @@ public class ToJsonFilterPlugin
             FilterPlugin.Control control)
     {
         PluginTask task = config.loadConfig(PluginTask.class);
+
+        for (String columnName : task.getColumnNamesSkipIfNull()) {
+            logger.debug("Skip a record if `{}` is null", columnName);
+        }
+
         Schema outputSchema = buildOutputSchema(task);
+        for (Column column : outputSchema.getColumns()) {
+            logger.debug("OutputSchema: {}", column);
+        }
         control.run(task.dump(), outputSchema);
     }
 
     private Schema buildOutputSchema(PluginTask task)
     {
+        final ColumnConfig jsonColumnConfig = buildJsonColumnConfig(task);
+
         ImmutableList.Builder<Column> builder = ImmutableList.builder();
-        Column jsonColumn = new Column(0, task.getColumnName(), Types.STRING);
+        Column jsonColumn = new Column(JSON_COLUMN_INDEX, jsonColumnConfig.getName(), jsonColumnConfig.getType());
         builder.add(jsonColumn);
+
         return new Schema(builder.build());
     }
 
@@ -57,11 +116,13 @@ public class ToJsonFilterPlugin
     public PageOutput open(TaskSource taskSource, final Schema inputSchema,
             final Schema outputSchema, final PageOutput output)
     {
-        PluginTask task = taskSource.loadTask(PluginTask.class);
-        return new PageOutput() {
+        final PluginTask task = taskSource.loadTask(PluginTask.class);
+        return new PageOutput()
+        {
             private final PageReader pageReader = new PageReader(inputSchema);
             private final PageBuilder pageBuilder = new PageBuilder(Exec.getBufferAllocator(), outputSchema, output);
-            private final ObjectMapper objectMapper = new ObjectMapper();
+            private final ColumnVisitorToJsonImpl visitor = new ColumnVisitorToJsonImpl(pageReader, pageBuilder,
+                    outputSchema.getColumn(JSON_COLUMN_INDEX), task.getColumnNamesSkipIfNull());
 
             @Override
             public void add(Page page)
@@ -69,47 +130,8 @@ public class ToJsonFilterPlugin
                 pageReader.setPage(page);
 
                 while (pageReader.nextRecord()) {
-                    pageBuilder.setString(0, convertRecordToJsonString());
+                    visitor.visit();
                     pageBuilder.addRecord();
-                }
-            }
-
-            private String convertRecordToJsonString()
-            {
-                Map<String, Object> map = Maps.newHashMap();
-                for (Column column : inputSchema.getColumns()) {
-                    if (pageReader.isNull(column)) {
-                        map.put(column.getName(), null);
-                        continue;
-                    }
-
-                    if (Types.BOOLEAN.equals(column.getType())) {
-                        map.put(column.getName(), pageReader.getBoolean(column));
-                    }
-                    else if (Types.DOUBLE.equals(column.getType())) {
-                        map.put(column.getName(), pageReader.getDouble(column));
-                    }
-                    else if (Types.LONG.equals(column.getType())) {
-                        map.put(column.getName(), pageReader.getLong(column));
-                    }
-                    else if (Types.STRING.equals(column.getType())) {
-                        map.put(column.getName(), pageReader.getString(column));
-                    }
-                    else if (Types.TIMESTAMP.equals(column.getType())) {
-                        map.put(column.getName(), pageReader.getTimestamp(column).toString());
-                    }
-                    else {
-                        logger.warn("Unsupported Type `{}`, so put null instead.", column.getType());
-                        map.put(column.getName(), null);
-                    }
-                }
-
-                try {
-                    return objectMapper.writeValueAsString(map);
-                }
-                catch (JsonProcessingException e) {
-                    logger.error(e.getMessage());
-                    throw new RuntimeException(e);
                 }
             }
 
