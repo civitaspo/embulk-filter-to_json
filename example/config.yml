@@ -15,5 +15,9 @@ in:
       - {name: score, type: double}
 filters:
   - type: to_json
+    column:
+      name: test
+      type: string
+    skip_if_null: [id]
 out:
   type: stdout
