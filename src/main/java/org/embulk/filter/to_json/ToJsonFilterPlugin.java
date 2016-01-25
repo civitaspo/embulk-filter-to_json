@@ -2,8 +2,6 @@ package org.embulk.filter.to_json;
 
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.ConfigException;
@@ -19,12 +17,14 @@ import org.embulk.spi.PageBuilder;
 import org.embulk.spi.PageOutput;
 import org.embulk.spi.PageReader;
 import org.embulk.spi.Schema;
+import org.embulk.spi.time.TimestampFormatter;
+import org.embulk.spi.time.TimestampParser;
 import org.embulk.spi.type.Type;
 import org.embulk.spi.type.Types;
+import org.joda.time.DateTimeZone;
 import org.slf4j.Logger;
 
 import java.util.List;
-import java.util.Map;
 
 public class ToJsonFilterPlugin
         implements FilterPlugin
@@ -36,7 +36,7 @@ public class ToJsonFilterPlugin
     private static final int JSON_COLUMN_INDEX = 0;
 
     public interface PluginTask
-            extends Task
+            extends Task, TimestampParser.Task
     {
         @Config("column")
         @ConfigDefault("null")
@@ -45,6 +45,14 @@ public class ToJsonFilterPlugin
         @Config("skip_if_null")
         @ConfigDefault("[]")
         List<String> getColumnNamesSkipIfNull();
+
+        @Config("timezone")
+        @ConfigDefault("\"UTC\"")
+        String getTimezone();
+
+        @Config("format")
+        @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%N %z\"")
+        String getFormat();
     }
 
     public interface JsonColumn
@@ -117,12 +125,16 @@ public class ToJsonFilterPlugin
             final Schema outputSchema, final PageOutput output)
     {
         final PluginTask task = taskSource.loadTask(PluginTask.class);
+        final DateTimeZone timezone  = DateTimeZone.forID(task.getTimezone());
+        final TimestampFormatter timestampFormatter = new TimestampFormatter(task.getJRuby(),  task.getFormat(), timezone);
+        final List<String> columnNamesSkipIfNull = task.getColumnNamesSkipIfNull();
+
         return new PageOutput()
         {
             private final PageReader pageReader = new PageReader(inputSchema);
             private final PageBuilder pageBuilder = new PageBuilder(Exec.getBufferAllocator(), outputSchema, output);
             private final ColumnVisitorToJsonImpl visitor = new ColumnVisitorToJsonImpl(pageReader, pageBuilder,
-                    outputSchema.getColumn(JSON_COLUMN_INDEX), task.getColumnNamesSkipIfNull());
+                    outputSchema.getColumn(JSON_COLUMN_INDEX), timestampFormatter, columnNamesSkipIfNull);
 
             @Override
             public void add(Page page)
