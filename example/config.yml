@@ -19,5 +19,6 @@ filters:
       name: test
       type: string
     skip_if_null: [id]
+    timezone: Asia/Tokyo
 out:
   type: stdout

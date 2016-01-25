@@ -2,7 +2,6 @@ package org.embulk.filter.to_json;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.embulk.config.ConfigException;
@@ -10,8 +9,8 @@ import org.embulk.spi.Column;
 import org.embulk.spi.ColumnVisitor;
 import org.embulk.spi.PageBuilder;
 import org.embulk.spi.PageReader;
-import org.embulk.spi.Schema;
 import org.embulk.spi.json.JsonParser;
+import org.embulk.spi.time.TimestampFormatter;
 import org.embulk.spi.type.Types;
 
 import java.io.IOException;
@@ -107,15 +106,17 @@ public class ColumnVisitorToJsonImpl
     private final Map<String, Object> map;
     private final PageReader pageReader;
     private final ColumnSetter columnSetter;
+    private final TimestampFormatter timestampFormatter;
     private List<String> skipColumnsIfNull = Lists.newArrayList();
     private boolean skipRecordFlag = false;
 
     ColumnVisitorToJsonImpl(PageReader pageReader, PageBuilder pageBuilder,
-            Column outputColumn, List<String> skipColumnsIfNull)
+            Column outputColumn, TimestampFormatter timestampFormatter, List<String> skipColumnsIfNull)
     {
         this.map = Maps.newHashMap();
         this.pageReader = pageReader;
         this.columnSetter = new ColumnSetter(pageBuilder, outputColumn);
+        this.timestampFormatter = timestampFormatter;
         this.skipColumnsIfNull = skipColumnsIfNull;
     }
 
@@ -171,7 +172,8 @@ public class ColumnVisitorToJsonImpl
             putNull(column);
             return;
         }
-        map.put(column.getName(), pageReader.getTimestamp(column).toString());
+        String value = timestampFormatter.format(pageReader.getTimestamp(column));
+        map.put(column.getName(), value);
     }
 
     @Override
