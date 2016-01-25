@@ -5,6 +5,7 @@ import com.google.common.collect.ImmutableList;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.ConfigException;
+import org.embulk.config.ConfigInject;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.Task;
 import org.embulk.config.TaskSource;
@@ -18,10 +19,10 @@ import org.embulk.spi.PageOutput;
 import org.embulk.spi.PageReader;
 import org.embulk.spi.Schema;
 import org.embulk.spi.time.TimestampFormatter;
-import org.embulk.spi.time.TimestampParser;
 import org.embulk.spi.type.Type;
 import org.embulk.spi.type.Types;
 import org.joda.time.DateTimeZone;
+import org.jruby.embed.ScriptingContainer;
 import org.slf4j.Logger;
 
 import java.util.List;
@@ -36,7 +37,7 @@ public class ToJsonFilterPlugin
     private static final int JSON_COLUMN_INDEX = 0;
 
     public interface PluginTask
-            extends Task, TimestampParser.Task
+            extends Task
     {
         @Config("column")
         @ConfigDefault("null")
@@ -46,13 +47,16 @@ public class ToJsonFilterPlugin
         @ConfigDefault("[]")
         List<String> getColumnNamesSkipIfNull();
 
-        @Config("timezone")
+        @Config("default_timezone")
         @ConfigDefault("\"UTC\"")
-        String getTimezone();
+        String getDefaultTimezone();
 
-        @Config("format")
+        @Config("default_format")
         @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%N %z\"")
-        String getFormat();
+        String getDefaultFormat();
+
+        @ConfigInject
+        ScriptingContainer getJRuby();
     }
 
     public interface JsonColumn
@@ -125,8 +129,8 @@ public class ToJsonFilterPlugin
             final Schema outputSchema, final PageOutput output)
     {
         final PluginTask task = taskSource.loadTask(PluginTask.class);
-        final DateTimeZone timezone  = DateTimeZone.forID(task.getTimezone());
-        final TimestampFormatter timestampFormatter = new TimestampFormatter(task.getJRuby(),  task.getFormat(), timezone);
+        final DateTimeZone timezone  = DateTimeZone.forID(task.getDefaultTimezone());
+        final TimestampFormatter timestampFormatter = new TimestampFormatter(task.getJRuby(),  task.getDefaultFormat(), timezone);
         final List<String> columnNamesSkipIfNull = task.getColumnNamesSkipIfNull();
 
         return new PageOutput()

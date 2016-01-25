@@ -12,8 +12,8 @@ Convert a record to jsonl.
   - **name** (string, default: `"json_payload"`)
   - **type** string or json (string, default: `"string"`)
 - **skip_if_null**: input column name list (array of string, default: `[]`)
-- **timezone**: special option for timestamp column, specify the timezone of timestamp value (string, default is `UTC`)
-- **format**: special option for timestamp column, specify the format of timestamp value (string, default is `%Y-%m-%d %H:%M:%S.%N %z`)
+- **default_timezone**: option for timestamp column, specify the timezone of timestamp value (string, default is `UTC`)
+- **default_format**: option for timestamp column, specify the format of timestamp value (string, default is `%Y-%m-%d %H:%M:%S.%N %z`)
 
 ## Example
 
