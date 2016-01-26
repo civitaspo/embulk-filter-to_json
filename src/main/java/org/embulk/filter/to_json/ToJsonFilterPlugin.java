@@ -129,7 +129,7 @@ public class ToJsonFilterPlugin
             final Schema outputSchema, final PageOutput output)
     {
         final PluginTask task = taskSource.loadTask(PluginTask.class);
-        final DateTimeZone timezone  = DateTimeZone.forID(task.getDefaultTimezone());
+        final DateTimeZone timezone = DateTimeZone.forID(task.getDefaultTimezone());
         final TimestampFormatter timestampFormatter = new TimestampFormatter(task.getJRuby(),  task.getDefaultFormat(), timezone);
         final List<String> columnNamesSkipIfNull = task.getColumnNamesSkipIfNull();
 
