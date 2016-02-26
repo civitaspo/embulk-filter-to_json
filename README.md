@@ -24,7 +24,7 @@ filters:
       name: test
       type: string
     skip_if_null: [id]
-    timezone: Asia/Tokyo
+    default_timezone: Asia/Tokyo
 ```
 
 ## Run Example
