@@ -1,25 +1,26 @@
 package org.embulk.filter.to_json;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.embulk.config.ConfigException;
 import org.embulk.spi.Column;
 import org.embulk.spi.ColumnVisitor;
+import org.embulk.spi.Exec;
 import org.embulk.spi.PageBuilder;
 import org.embulk.spi.PageReader;
 import org.embulk.spi.json.JsonParser;
 import org.embulk.spi.time.TimestampFormatter;
 import org.embulk.spi.type.Types;
+import org.slf4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Created by takahiro.nakayama on 1/23/16.
- */
 public class ColumnVisitorToJsonImpl
         implements ColumnVisitor
 {
@@ -102,22 +103,31 @@ public class ColumnVisitorToJsonImpl
         }
     }
 
+    private static final Logger logger = Exec.getLogger(ColumnVisitorToJsonImpl.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private final Map<String, Object> map;
+    private final Map<String, Object> map = Maps.newHashMap();
+    private final Map<String, Map<String, Object>> mapForOrderedMerge = Maps.newHashMap();
+    private final Map<String, Object> mergedMap = Maps.newHashMap();
     private final PageReader pageReader;
     private final ColumnSetter columnSetter;
+    private final Column outputColumn;
     private final TimestampFormatter timestampFormatter;
     private List<String> skipColumnsIfNull = Lists.newArrayList();
+    private final boolean mergeMode;
+    private final List<String> mergePriority;
     private boolean skipRecordFlag = false;
 
     ColumnVisitorToJsonImpl(PageReader pageReader, PageBuilder pageBuilder,
-            Column outputColumn, TimestampFormatter timestampFormatter, List<String> skipColumnsIfNull)
+            Column outputColumn, TimestampFormatter timestampFormatter,
+            List<String> skipColumnsIfNull, boolean mergeMode, List<String> mergePriority)
     {
-        this.map = Maps.newHashMap();
         this.pageReader = pageReader;
         this.columnSetter = new ColumnSetter(pageBuilder, outputColumn);
+        this.outputColumn = outputColumn;
         this.timestampFormatter = timestampFormatter;
         this.skipColumnsIfNull = skipColumnsIfNull;
+        this.mergeMode = mergeMode;
+        this.mergePriority = mergePriority;
     }
 
     @Override
@@ -181,12 +191,23 @@ public class ColumnVisitorToJsonImpl
     {
         if (pageReader.isNull(column)) {
             setSkipRecordFlagIfNeeded(column);
-            putNull(column);
-            return;
+            if (mergeMode) {
+                return;
+            }
+            else {
+                putNull(column);
+                return;
+            }
         }
 
         try {
-            map.put(column.getName(), objectMapper.readTree(pageReader.getJson(column).toJson()));
+            if (mergeMode && mergePriority.contains(column.getName())) {
+                Map<String, Object> parsedJson = objectMapper.readValue(pageReader.getJson(column).toJson(), new TypeReference<Map<String, Object>>(){});
+                mapForOrderedMerge.put(column.getName(), parsedJson);
+            }
+            else {
+                map.put(column.getName(), objectMapper.readTree(pageReader.getJson(column).toJson()));
+            }
         }
         catch (IOException e) {
             throw new RuntimeException(e);
@@ -201,6 +222,8 @@ public class ColumnVisitorToJsonImpl
     private void clear()
     {
         skipRecordFlag = false;
+        mapForOrderedMerge.clear();
+        mergedMap.clear();
         map.clear();
     }
 
@@ -222,7 +245,13 @@ public class ColumnVisitorToJsonImpl
 
         try {
             if (!shouldSkipRecord()) {
-                columnSetter.jsonStringSetter.set(buildJsonString());
+                if (mergeMode) {
+                    mergeMaps();
+                    columnSetter.jsonStringSetter.set(buildJsonString(mergedMap));
+                }
+                else {
+                    columnSetter.jsonStringSetter.set(buildJsonString(map));
+                }
             }
         }
         finally {
@@ -230,10 +259,38 @@ public class ColumnVisitorToJsonImpl
         }
     }
 
-    private String buildJsonString()
+    private void mergeMaps()
+    {
+        mapForOrderedMerge.put(outputColumn.getName(), map);
+        for (String columnName : getMergeOrder()) {
+            if (mapForOrderedMerge.containsKey(columnName)) {
+                for (Map.Entry<String, Object> entry : mapForOrderedMerge.get(columnName).entrySet()) {
+                    mergedMap.put(entry.getKey(), entry.getValue());
+                    mapForOrderedMerge.remove(columnName);
+                }
+            }
+        }
+        if (!mapForOrderedMerge.isEmpty()) {
+            String msg = String.format(
+                    "Merge Priority does not include all Json columns: left these: %s",
+                    Joiner.on(",").join(mapForOrderedMerge.keySet()));
+            throw new IllegalStateException(msg);
+        }
+    }
+
+    private List<String> getMergeOrder()
+    {
+        List<String> mergeOrder = Lists.reverse(mergePriority);
+        if (!mergeOrder.contains(outputColumn.getName())) {
+            mergeOrder.add(0, outputColumn.getName());
+        }
+        return mergeOrder;
+    }
+
+    private String buildJsonString(Map hashMap)
     {
         try {
-            return objectMapper.writeValueAsString(map);
+            return objectMapper.writeValueAsString(hashMap);
         }
         catch (JsonProcessingException e) {
             throw new RuntimeException(e);

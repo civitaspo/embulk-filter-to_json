@@ -47,6 +47,14 @@ public class ToJsonFilterPlugin
         @ConfigDefault("[]")
         List<String> getColumnNamesSkipIfNull();
 
+        @Config("merge_mode")
+        @ConfigDefault("false")
+        Boolean getMergeMode();
+
+        @Config("merge_priority")
+        @ConfigDefault("[]")
+        List<String> getMergePriority();
+
         @Config("default_timezone")
         @ConfigDefault("\"UTC\"")
         String getDefaultTimezone();
@@ -96,15 +104,36 @@ public class ToJsonFilterPlugin
         return new ColumnConfig(name, type, option);
     }
 
+    private void validate(PluginTask task, Schema inputSchema)
+    {
+        for (String columnName : task.getColumnNamesSkipIfNull()) {
+            logger.debug("Skip a record if `{}` is null", columnName);
+        }
+
+        if (task.getMergeMode()) {
+            String jsonColumnName = buildJsonColumnConfig(task).getName();
+            for (String columnName : task.getMergePriority()) {
+                if (jsonColumnName.equals(columnName)) {
+                    continue;
+                }
+                // call SchemaConfigException if inputSchema does not have column
+                Column column = inputSchema.lookupColumn(columnName);
+                if (!Types.JSON.equals(column.getType())) {
+                    String msg = String.format("Cannot merge {name:'%s', type:'%s'} as json. Only Json Type column can be merged.",
+                            column.getName(), column.getType());
+                    throw new ConfigException(msg);
+                }
+            }
+        }
+    }
+
     @Override
     public void transaction(ConfigSource config, Schema inputSchema,
             FilterPlugin.Control control)
     {
         PluginTask task = config.loadConfig(PluginTask.class);
 
-        for (String columnName : task.getColumnNamesSkipIfNull()) {
-            logger.debug("Skip a record if `{}` is null", columnName);
-        }
+        validate(task, inputSchema);
 
         Schema outputSchema = buildOutputSchema(task);
         for (Column column : outputSchema.getColumns()) {
@@ -132,13 +161,16 @@ public class ToJsonFilterPlugin
         final DateTimeZone timezone = DateTimeZone.forID(task.getDefaultTimezone());
         final TimestampFormatter timestampFormatter = new TimestampFormatter(task.getJRuby(),  task.getDefaultFormat(), timezone);
         final List<String> columnNamesSkipIfNull = task.getColumnNamesSkipIfNull();
+        final boolean mergeMode = task.getMergeMode();
+        final List<String> mergePriority = task.getMergePriority();
 
         return new PageOutput()
         {
             private final PageReader pageReader = new PageReader(inputSchema);
             private final PageBuilder pageBuilder = new PageBuilder(Exec.getBufferAllocator(), outputSchema, output);
             private final ColumnVisitorToJsonImpl visitor = new ColumnVisitorToJsonImpl(pageReader, pageBuilder,
-                    outputSchema.getColumn(JSON_COLUMN_INDEX), timestampFormatter, columnNamesSkipIfNull);
+                    outputSchema.getColumn(JSON_COLUMN_INDEX), timestampFormatter,
+                    columnNamesSkipIfNull, mergeMode, mergePriority);
 
             @Override
             public void add(Page page)

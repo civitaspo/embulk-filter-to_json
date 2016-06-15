@@ -12,6 +12,11 @@ Convert a record to jsonl.
   - **name** (string, default: `"json_payload"`)
   - **type** string or json (string, default: `"string"`)
 - **skip_if_null**: input column name list (array of string, default: `[]`)
+- **merge_mode**: if true, merge json column `merge_priority` indicates (bool, default: `false`)
+- **merge_priority**: (array of string, default: `[]`)
+  - if `merge_mode` is true, merge json columns this list of column name includes.
+  - You can indicate input column names and the json column name (you configured `column.name`)
+  - if merging json has duplicated keys, column name which has smaller index is used.
 - **default_timezone**: option for timestamp column, specify the timezone of timestamp value (string, default is `UTC`)
 - **default_format**: option for timestamp column, specify the format of timestamp value (string, default is `%Y-%m-%d %H:%M:%S.%N %z`)
 
@@ -25,6 +30,18 @@ filters:
       type: string
     skip_if_null: [id]
     timezone: Asia/Tokyo
+```
+
+```yaml
+filters:
+  - type: to_json
+    column:
+      name: test
+      type: string
+    skip_if_null: [id]
+    merge_mode: true
+    merge_priority: [json_payload, test]
+    default_timezone: Asia/Tokyo
 ```
 
 ## Run Example
