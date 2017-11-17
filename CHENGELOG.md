@@ -1,3 +1,8 @@
+0.0.5 (2017-11-17)
+==================
+- Use traditional constructors of TimestampFormatter against Embulk core deprecation.
+  - https://github.com/civitaspo/embulk-filter-to_json/pull/6
+
 0.0.4 (2016-01-25)
 ==================
 - incompatible change: `timezone` / `format` options removed
