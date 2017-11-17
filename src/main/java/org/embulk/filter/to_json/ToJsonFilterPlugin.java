@@ -22,7 +22,6 @@ import org.embulk.spi.time.TimestampFormatter;
 import org.embulk.spi.type.Type;
 import org.embulk.spi.type.Types;
 import org.joda.time.DateTimeZone;
-import org.jruby.embed.ScriptingContainer;
 import org.slf4j.Logger;
 
 import java.util.List;
@@ -54,9 +53,6 @@ public class ToJsonFilterPlugin
         @Config("default_format")
         @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%N %z\"")
         String getDefaultFormat();
-
-        @ConfigInject
-        ScriptingContainer getJRuby();
     }
 
     public interface JsonColumn
@@ -124,13 +120,23 @@ public class ToJsonFilterPlugin
         return new Schema(builder.build());
     }
 
+    private static interface FormatterIntlTask extends Task, TimestampFormatter.Task {}
+    private static interface FormatterIntlColumnOption extends Task, TimestampFormatter.TimestampColumnOption {}
+
     @Override
     public PageOutput open(TaskSource taskSource, final Schema inputSchema,
             final Schema outputSchema, final PageOutput output)
     {
         final PluginTask task = taskSource.loadTask(PluginTask.class);
         final DateTimeZone timezone = DateTimeZone.forID(task.getDefaultTimezone());
-        final TimestampFormatter timestampFormatter = new TimestampFormatter(task.getJRuby(),  task.getDefaultFormat(), timezone);
+        // TODO: Switch to a newer TimestampFormatter constructor after a reasonable interval.
+        // Traditional constructor is used here for compatibility.
+        final ConfigSource configSource = Exec.newConfigSource();
+        configSource.set("format", task.getDefaultFormat());
+        configSource.set("timezone", timezone);
+        final TimestampFormatter timestampFormatter = new TimestampFormatter(
+            Exec.newConfigSource().loadConfig(FormatterIntlTask.class),
+            Optional.fromNullable(configSource.loadConfig(FormatterIntlColumnOption.class)));
         final List<String> columnNamesSkipIfNull = task.getColumnNamesSkipIfNull();
 
         return new PageOutput()
