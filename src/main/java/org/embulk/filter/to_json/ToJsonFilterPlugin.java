@@ -35,13 +35,13 @@ public class ToJsonFilterPlugin
     private static final Logger logger = LoggerFactory.getLogger(ToJsonFilterPlugin.class);
     private static final String DEFAULT_COLUMN_NAME = "json_payload";
     private static final Type DEFAULT_COLUMN_TYPE = Types.STRING;
-    private static final ConfigSource DEFAULT_COLUMN_OPTION = Exec.newConfigSource();
     private static final int JSON_COLUMN_INDEX = 0;
     private static final ConfigMapperFactory CONFIG_MAPPER_FACTORY = ConfigMapperFactory
             .builder()
             .addDefaultModules()
             .build();
     private static final ConfigMapper CONFIG_MAPPER = CONFIG_MAPPER_FACTORY.createConfigMapper();
+    private static final ConfigSource DEFAULT_COLUMN_OPTION = CONFIG_MAPPER_FACTORY.newConfigSource();
 
     public interface PluginTask
             extends Task

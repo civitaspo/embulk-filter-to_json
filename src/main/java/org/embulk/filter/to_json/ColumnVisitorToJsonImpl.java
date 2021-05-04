@@ -171,7 +171,8 @@ public class ColumnVisitorToJsonImpl
             putNull(column);
             return;
         }
-        String value = timestampFormatter.format(pageReader.getTimestampInstant(column));
+        // TODO: Use pageReader.getTimestampInstant after dropping v0.9
+        String value = timestampFormatter.format(pageReader.getTimestamp(column).getInstant());
         map.put(column.getName(), value);
     }
 
