@@ -1,16 +1,19 @@
 package org.embulk.filter.to_json;
 
-import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableList;
-import org.embulk.config.Config;
-import org.embulk.config.ConfigDefault;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Optional;
+import org.embulk.util.config.Config;
+import org.embulk.util.config.ConfigDefault;
 import org.embulk.config.ConfigException;
-import org.embulk.config.ConfigInject;
 import org.embulk.config.ConfigSource;
-import org.embulk.config.Task;
+import org.embulk.util.config.ConfigMapper;
+import org.embulk.util.config.ConfigMapperFactory;
+import org.embulk.util.config.Task;
 import org.embulk.config.TaskSource;
 import org.embulk.spi.Column;
-import org.embulk.spi.ColumnConfig;
+import org.embulk.util.config.TaskMapper;
+import org.embulk.util.config.units.ColumnConfig;
 import org.embulk.spi.Exec;
 import org.embulk.spi.FilterPlugin;
 import org.embulk.spi.Page;
@@ -18,22 +21,27 @@ import org.embulk.spi.PageBuilder;
 import org.embulk.spi.PageOutput;
 import org.embulk.spi.PageReader;
 import org.embulk.spi.Schema;
-import org.embulk.spi.time.TimestampFormatter;
+import org.embulk.util.timestamp.TimestampFormatter;
 import org.embulk.spi.type.Type;
 import org.embulk.spi.type.Types;
-import org.joda.time.DateTimeZone;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
 public class ToJsonFilterPlugin
         implements FilterPlugin
 {
-    private static final Logger logger = Exec.getLogger(ToJsonFilterPlugin.class);
+    private static final Logger logger = LoggerFactory.getLogger(ToJsonFilterPlugin.class);
     private static final String DEFAULT_COLUMN_NAME = "json_payload";
     private static final Type DEFAULT_COLUMN_TYPE = Types.STRING;
     private static final ConfigSource DEFAULT_COLUMN_OPTION = Exec.newConfigSource();
     private static final int JSON_COLUMN_INDEX = 0;
+    private static final ConfigMapperFactory CONFIG_MAPPER_FACTORY = ConfigMapperFactory
+            .builder()
+            .addDefaultModules()
+            .build();
+    private static final ConfigMapper CONFIG_MAPPER = CONFIG_MAPPER_FACTORY.createConfigMapper();
 
     public interface PluginTask
             extends Task
@@ -76,7 +84,7 @@ public class ToJsonFilterPlugin
         JsonColumn jsonColumn = task.getJsonColumn().get();
         Optional<String> name = jsonColumn.getName();
         Optional<Type> type = jsonColumn.getType();
-        return newJsonColumnConfig(name.or(DEFAULT_COLUMN_NAME), type.or(DEFAULT_COLUMN_TYPE), DEFAULT_COLUMN_OPTION);
+        return newJsonColumnConfig(name.orElse(DEFAULT_COLUMN_NAME), type.orElse(DEFAULT_COLUMN_TYPE), DEFAULT_COLUMN_OPTION);
     }
 
     private ColumnConfig newJsonColumnConfig()
@@ -96,7 +104,7 @@ public class ToJsonFilterPlugin
     public void transaction(ConfigSource config, Schema inputSchema,
             FilterPlugin.Control control)
     {
-        PluginTask task = config.loadConfig(PluginTask.class);
+        final PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
         for (String columnName : task.getColumnNamesSkipIfNull()) {
             logger.debug("Skip a record if `{}` is null", columnName);
@@ -106,6 +114,8 @@ public class ToJsonFilterPlugin
         for (Column column : outputSchema.getColumns()) {
             logger.debug("OutputSchema: {}", column);
         }
+
+        // TODO: Use task.toTaskSource() after dropping v0.9
         control.run(task.dump(), outputSchema);
     }
 
@@ -113,30 +123,25 @@ public class ToJsonFilterPlugin
     {
         final ColumnConfig jsonColumnConfig = buildJsonColumnConfig(task);
 
-        ImmutableList.Builder<Column> builder = ImmutableList.builder();
         Column jsonColumn = new Column(JSON_COLUMN_INDEX, jsonColumnConfig.getName(), jsonColumnConfig.getType());
-        builder.add(jsonColumn);
+        List<Column> columns = Collections.unmodifiableList(Arrays.asList(jsonColumn));
 
-        return new Schema(builder.build());
+        return new Schema(columns);
     }
-
-    private static interface FormatterIntlTask extends Task, TimestampFormatter.Task {}
-    private static interface FormatterIntlColumnOption extends Task, TimestampFormatter.TimestampColumnOption {}
 
     @Override
     public PageOutput open(TaskSource taskSource, final Schema inputSchema,
             final Schema outputSchema, final PageOutput output)
     {
-        final PluginTask task = taskSource.loadTask(PluginTask.class);
-        final DateTimeZone timezone = DateTimeZone.forID(task.getDefaultTimezone());
-        // TODO: Switch to a newer TimestampFormatter constructor after a reasonable interval.
-        // Traditional constructor is used here for compatibility.
-        final ConfigSource configSource = Exec.newConfigSource();
-        configSource.set("format", task.getDefaultFormat());
-        configSource.set("timezone", timezone);
-        final TimestampFormatter timestampFormatter = new TimestampFormatter(
-            Exec.newConfigSource().loadConfig(FormatterIntlTask.class),
-            Optional.fromNullable(configSource.loadConfig(FormatterIntlColumnOption.class)));
+        final TaskMapper taskMapper = CONFIG_MAPPER_FACTORY.createTaskMapper();
+        final PluginTask task = taskMapper.map(taskSource, PluginTask.class);
+        final String timezone = task.getDefaultTimezone();
+        final String format = task.getDefaultFormat();
+
+        TimestampFormatter timestampFormatter = TimestampFormatter.builder(format, true)
+                .setDefaultDateFromString("1970-01-01")
+                .setDefaultZoneFromString(timezone)
+                .build();
         final List<String> columnNamesSkipIfNull = task.getColumnNamesSkipIfNull();
 
         return new PageOutput()
