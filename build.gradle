@@ -1,36 +1,50 @@
 plugins {
-    id "com.jfrog.bintray" version "1.1"
-    id "com.github.jruby-gradle.base" version "0.1.5"
     id "java"
     id "checkstyle"
+    id "maven-publish"
+    id "org.embulk.embulk-plugins" version "0.4.2"
 }
-import com.github.jrubygradle.JRubyExec
 repositories {
     mavenCentral()
     jcenter()
 }
-configurations {
-    provided
+
+embulkPlugin {
+    mainClass = "org.embulk.filter.to_json.ToJsonFilterPlugin"
+    category = "filter"
+    type = "to_json"
 }
 
+group = "pro.civitaspo"
 version = "0.0.5"
+description = "To Json"
 
-sourceCompatibility = 1.7
-targetCompatibility = 1.7
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
 
 dependencies {
-    compile  "org.embulk:embulk-core:0.8.1"
-    provided "org.embulk:embulk-core:0.8.1"
-    // compile "YOUR_JAR_DEPENDENCY_GROUP:YOUR_JAR_DEPENDENCY_MODULE:YOUR_JAR_DEPENDENCY_VERSION"
-    testCompile "junit:junit:4.+"
-}
+    compileOnly "org.embulk:embulk-api:0.10.31"
+    compileOnly "org.embulk:embulk-spi:0.10.31"
+    compile("org.embulk:embulk-util-config:0.2.1") {
+        // They conflict with embulk-core. They are once excluded here,
+        // and added explicitly with versions exactly the same with embulk-core:0.10.19.
+        exclude group: "com.fasterxml.jackson.core", module: "jackson-annotations"
+        exclude group: "com.fasterxml.jackson.core", module: "jackson-core"
+        exclude group: "com.fasterxml.jackson.core", module: "jackson-databind"
+        exclude group: "com.fasterxml.jackson.datatype", module: "jackson-datatype-jdk8"
+        exclude group: "javax.validation", module: "validation-api"
+    }
+    compile "org.embulk:embulk-util-timestamp:0.2.1"
 
-task classpath(type: Copy, dependsOn: ["jar"]) {
-    doFirst { file("classpath").deleteDir() }
-    from (configurations.runtime - configurations.provided + files(jar.archivePath))
-    into "classpath"
+
+    testCompile "org.embulk:embulk-api:0.10.31"
+    testCompile "org.embulk:embulk-spi:0.10.31"
+    testCompile "org.embulk:embulk-core:0.10.31"
+    testCompile  "org.embulk:embulk-core:0.10.31:tests"
+    testCompile "org.embulk:embulk-deps:0.10.31"
+    // compile "YOUR_JAR_DEPENDENCY_GROUP:YOUR_JAR_DEPENDENCY_MODULE:YOUR_JAR_DEPENDENCY_VERSION"
+    testCompile "junit:junit:4.13.2"
 }
-clean { delete "classpath" }
 
 checkstyle {
     configFile = file("${project.rootDir}/config/checkstyle/checkstyle.xml")
@@ -49,46 +63,20 @@ task checkstyle(type: Checkstyle) {
     source = sourceSets.main.allJava + sourceSets.test.allJava
 }
 
-task gem(type: JRubyExec, dependsOn: ["gemspec", "classpath"]) {
-    jrubyArgs "-rrubygems/gem_runner", "-eGem::GemRunner.new.run(ARGV)", "build"
-    script "${project.name}.gemspec"
-    doLast { ant.move(file: "${project.name}-${project.version}.gem", todir: "pkg") }
+gem {
+    from("LICENSE.txt")  // Optional -- if you need other files in the gem.
+    authors = [ "Civitaspo" ]
+    email = [ "civitaspo@gmail.com" ]
+    // "description" of the gem is copied from "description" of your Gradle project.
+    summary = "To Json filter plugin for Embulk"
+    homepage = "https://github.com/civitaspo/embulk-filter-to_json"
+    licenses = [ "MIT" ]
+    //metadata = []
+}
+gemPush {
+    host = "https://rubygems.org"
 }
 
-task gemPush(type: JRubyExec, dependsOn: ["gem"]) {
-    jrubyArgs "-rrubygems/gem_runner", "-eGem::GemRunner.new.run(ARGV)", "push"
-    script "pkg/${project.name}-${project.version}.gem"
+tasks.withType(JavaCompile) {
+    options.compilerArgs << "-Xlint:deprecation" << "-Xlint:unchecked"
 }
-
-task "package"(dependsOn: ["gemspec", "classpath"]) << {
-    println "> Build succeeded."
-    println "> You can run embulk with '-L ${file(".").absolutePath}' argument."
-}
-
-task gemspec {
-    ext.gemspecFile = file("${project.name}.gemspec")
-    inputs.file "build.gradle"
-    outputs.file gemspecFile
-    doLast { gemspecFile.write($/
-Gem::Specification.new do |spec|
-  spec.name          = "${project.name}"
-  spec.version       = "${project.version}"
-  spec.authors       = ["Civitaspo"]
-  spec.summary       = %[To Json filter plugin for Embulk]
-  spec.description   = %[To Json]
-  spec.email         = ["civitaspo@gmail.com"]
-  spec.licenses      = ["MIT"]
-  spec.homepage      = "https://github.com/civitaspo/embulk-filter-to_json"
-
-  spec.files         = `git ls-files`.split("\n") + Dir["classpath/*.jar"]
-  spec.test_files    = spec.files.grep(%r"^(test|spec)/")
-  spec.require_paths = ["lib"]
-
-  #spec.add_dependency 'YOUR_GEM_DEPENDENCY', ['~> YOUR_GEM_DEPENDENCY_VERSION']
-  spec.add_development_dependency 'bundler', ['~> 1.0']
-  spec.add_development_dependency 'rake', ['>= 10.0']
-end
-/$)
-    }
-}
-clean { delete "${project.name}.gemspec" }
