@@ -1,3 +1,8 @@
+0.1.0 (2021-05-10)
+==================
+- Get ready for v0.11 and v1.0
+  - https://github.com/civitaspo/embulk-filter-to_json/pull/8
+
 0.0.5 (2017-11-17)
 ==================
 - Use traditional constructors of TimestampFormatter against Embulk core deprecation.

@@ -15,7 +15,7 @@ embulkPlugin {
 }
 
 group = "pro.civitaspo"
-version = "0.0.5"
+version = "0.1.0"
 description = "To Json"
 
 sourceCompatibility = 1.8
