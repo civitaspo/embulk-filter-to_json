@@ -2,18 +2,17 @@ package org.embulk.filter.to_json;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.embulk.config.ConfigException;
 import org.embulk.spi.Column;
 import org.embulk.spi.ColumnVisitor;
 import org.embulk.spi.PageBuilder;
 import org.embulk.spi.PageReader;
-import org.embulk.spi.json.JsonParser;
-import org.embulk.spi.time.TimestampFormatter;
+import org.embulk.util.json.JsonParser;
+import org.embulk.util.timestamp.TimestampFormatter;
 import org.embulk.spi.type.Types;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -107,13 +106,13 @@ public class ColumnVisitorToJsonImpl
     private final PageReader pageReader;
     private final ColumnSetter columnSetter;
     private final TimestampFormatter timestampFormatter;
-    private List<String> skipColumnsIfNull = Lists.newArrayList();
+    private final List<String> skipColumnsIfNull;
     private boolean skipRecordFlag = false;
 
     ColumnVisitorToJsonImpl(PageReader pageReader, PageBuilder pageBuilder,
             Column outputColumn, TimestampFormatter timestampFormatter, List<String> skipColumnsIfNull)
     {
-        this.map = Maps.newHashMap();
+        this.map = new HashMap<>();
         this.pageReader = pageReader;
         this.columnSetter = new ColumnSetter(pageBuilder, outputColumn);
         this.timestampFormatter = timestampFormatter;
@@ -172,7 +171,8 @@ public class ColumnVisitorToJsonImpl
             putNull(column);
             return;
         }
-        String value = timestampFormatter.format(pageReader.getTimestamp(column));
+        // TODO: Use pageReader.getTimestampInstant after dropping v0.9
+        String value = timestampFormatter.format(pageReader.getTimestamp(column).getInstant());
         map.put(column.getName(), value);
     }
 
